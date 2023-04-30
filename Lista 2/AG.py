@@ -142,7 +142,8 @@ def Atualização(população,descentes,Valor,Peso,Mochila,tipo):
 
         Qualidade,P = KPS(descentes,Valor,Peso)
        # print(Qualidade,P)
-        Qualidade = Qualidade[P<Mochila]
+        if(len( Qualidade[P<Mochila])!= 0):
+            Qualidade = Qualidade[P<Mochila]
         melhor_descendente = descentes[np.argsort(Qualidade)[::-1]][0]
 
         Qualidade,_ = KPS(população,Valor,Peso)
