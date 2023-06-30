@@ -83,34 +83,49 @@ using Base.Threads
         end
         return população
     end
-    
-    function AG(G, N::Int, L::Int, seed::Int, num_pop::Int, num_passos::Int)
+    function Mutate(solução,prob::Float64)
+        if(rand()<prob)
+            return swap_elements(solução)
+        end
+        return solução 
+    end
+    function AG(G, N::Int, L::Int, seed::Int, num_pop::Int, num_passos::Int,prob::Float64)
         Random.seed!(seed)
         população = generate_pop(N, num_pop, L)
         Aptidão = zeros(num_pop)
-        
+        tempo = 0
         for i in 1:num_pop
             Aptidão[i] = objetivo(G, população[i, :])
         end
         
         t = 0
+        tempo = 0
+        x = []
+        y = []
         while t != num_passos
-            sorting = shuffle(collect(1:num_pop))
-            
-            pais = sorting[1:2]
-            novo = Descendentes(view(população, pais, :), view(Aptidão, pais), L, "max")
-            
-            site = argmin(Aptidão)
-            população[site, :] = novo
-            Aptidão[site] = objetivo(G, população[site, :])
-            
-            t += 1
-            if abs(mean(Aptidão) - maximum(Aptidão)) < 1e-6
-                break
+            tempo += @elapsed begin
+                sorting = shuffle(collect(1:num_pop))
+                
+                pais = sorting[1:4]
+                indices_dois_maiores = sortperm(Aptidão[sorting[1:4]], rev = true)[1:2]
+                pais = pais[indices_dois_maiores]
+                novo = Descendentes(view(população, pais, :), view(Aptidão, pais), L, "max")
+                novo = Mutate(novo,prob)
+                site = argmin(Aptidão)
+                população[site, :] .= novo
+                Aptidão[site] = objetivo(G, população[site, :])
+                
+                t += 1
+                if abs(mean(Aptidão) - maximum(Aptidão)) < 1e-6
+                    break
+                end
             end
+            push!(x,tempo)
+            push!(y,maximum(Aptidão))
         end
         
-        return maximum(Aptidão)
+        
+        return x,y,maximum(Aptidão),tempo
     end
     
     function verificar_vetor(matriz, vetor)
@@ -174,6 +189,49 @@ using Base.Threads
             push!(y,Aptidão)
         end
         return x,y,Aptidão
+    end
+
+    function resfriamento(T,alpha)
+        return T/(1+alpha*T)
+    end
+
+    function SimulatedAnneling(G, N::Int, L::Int, seed::Int,check::Int,k::Int,T::Int,alpha::Float64)
+        Random.seed!(seed)
+        população = generate_pop(N, 1, L)
+        Aptidão = objetivo(G, população[1,:])
+        cancel = 0
+        x = []
+        y = []
+        tabu = []
+        tempo = 0
+        for i in 1:4000
+            tempo += @elapsed begin
+                solução_vizinha = 0
+                Aptidão_vizinha = 0
+                if i == 1
+                    solução_vizinha,Aptidão_vizinha,tabu = vizinhança(G,população[i,:],tabu,check,k)
+                else
+                    solução_vizinha,Aptidão_vizinha,tabu = vizinhança(G,população,tabu,check,k)
+                end
+                probabilidade = exp(-(Aptidão_vizinha - Aptidão)/T)
+                T = resfriamento(T,alpha)
+                if Aptidão_vizinha > Aptidão || probabilidade <= rand()
+                    população = solução_vizinha
+                    Aptidão = Aptidão_vizinha
+                end
+                if(length(y) > 200)
+                    media1 = mean(y[end-99:end])
+                    media2 = mean(y[end-199:end])
+                    if (abs(media1 - media2) < 1e-6)
+                        break
+                    end
+                end
+                
+            end
+            push!(x,tempo)
+            push!(y,Aptidão)
+        end
+        return x,y,Aptidão,tempo
     end
     
     function generate_AG()
@@ -264,32 +322,27 @@ using Base.Threads
     end
     function best_AG()
     
-        # Parâmetros
         
-        # Exibir os valores lidos
-        vetor1 = vec(range(50, step=50, stop=300))
-        vetor2 = vec(range(1000, step=500, stop=4000))
-        arquivo = open("best_AG.txt", "w")
+        vetor1 = vec(range(300, step=50, stop=600))
+        vetor2 = vec(range(4000, step=500, stop=6000))
+        vetor3 = vec([0.01,0.05,0.1,0.0])
+        arquivo = open("./output/best_AG.txt", "a")
         L = 40
     
-        # Configuração de threads
         Threads.nthreads() > 1 || error("Julia não está configurado para usar threads.")
     
-        combinacoes = collect(Iterators.product(vetor1, vetor2))
-    
+        combinacoes = collect(Iterators.product(vetor1, vetor2,vetor3))
         @threads for comb in combinacoes
             local melhor = 0
-            local melhor_i = ()
             local x = 1
             local result = 0
-    
             tasks = Task[]
             for seed in 1:20
-                N = 100  # Número de vértices
-                p = 0.5  # Probabilidade de criação de uma aresta
+                N = 100 
+                p = 0.5 
                 rede = criar_rede_erdos_renyi(N, p, 42 * x + seed)
     
-                t = Threads.@spawn  AG(rede, N, L, 42 * x + seed, comb[1], comb[2])
+                t = Threads.@spawn  AG(rede, N, L, 42 * x + seed, comb[1], comb[2],comb[3])
     
                 push!(tasks, t)
             end
@@ -300,16 +353,98 @@ using Base.Threads
             end
     
             melhor /= 20
-    
-            if melhor > melhor
-                melhor = melhor
-                melhor_i = comb
-            end
-    
             x += 1
             println(arquivo,comb,"\t", melhor)
             println("$comb\t$melhor")
         end
     end
+    function best_SA()
+    
+        
+        vetor1 = [1, 2]
+        vetor2 = vec(range(1, step=5, stop=25))
+        vetor3 = vec(range(1000, step=1000, stop=6000))
+        vetor4 = [0.01,0.1,0.5,0.6,0.7,0.8,0.9]
 
+        arquivo = open("./output/best_SA.txt", "a")
+        L = 40
+    
+        Threads.nthreads() > 1 || error("Julia não está configurado para usar threads.")
+    
+        combinacoes = collect(Iterators.product(vetor1, vetor2,vetor3,vetor4))
+        rodou = 1
+        @threads for comb in combinacoes
+            local melhor = 0
+            local x = 1
+            local result = 0
+            tasks = Task[]
+            for seed in 1:20
+                N = 100 
+                p = 0.5 
+                rede = criar_rede_erdos_renyi(N, p, 42 * x + seed)
+    
+                t = Threads.@spawn  SimulatedAnneling(rede, N, L, 42 * x + seed, comb...)[4]
+    
+                push!(tasks, t)
+            end
+    
+            for t in tasks
+                result = fetch(t)
+                melhor += result
+            end
+    
+            melhor /= 20
+            x += 1
+            println(arquivo,comb,"\t", melhor)
+            rodou += 1
+            println(rodou,"/",length(combinacoes))
+        end
+    end
+
+    function compara()
+        N = 100  # Número de vértices
+        p = 0.5  # Probabilidade de criação de uma aresta
+        arquivo = open("./output/best_tempo.txt", "a")
+        L = 40
+
+        # Configuração de threads
+        Threads.nthreads() > 1 || error("Julia não está configurado para usar threads.")
+        tam = 1000
+        ag_results = Vector{Any}(undef, tam)
+        #ls_results = Vector{Any}(undef, tam)
+        x = 1
+
+        Threads.@threads for seed in 1:tam
+            rede = criar_rede_erdos_renyi(N, p, 42 * x + seed)
+            t = Threads.@spawn AG(rede, N, L, 42 * x + seed, 300, 6000,0.01)[2]
+            #t = Threads.@spawn SimulatedAnneling(rede, N, L, 42 * x + seed, 1, 21,5000,0.5)[4]
+            ag_results[seed] = fetch(t)
+        end
+        
+        for seed in 1:tam
+            println(arquivo, x, "\t", ag_results[seed])
+        end
+
+        #= Threads.@threads for seed in 1:tam
+            rede = criar_rede_erdos_renyi(N, p, 93 * x + seed)
+            t = Threads.@spawn LocalSearch(rede, N, L, 93 * x + seed, 2, 20)[3]
+            ls_results[seed] = fetch(t)
+        end
+
+        for seed in 1:tam
+            println(arquivo, x, "\t", ls_results[seed])
+        end =#
+    end
+    function get_best()
+        arquivo = open("./output/best_SA.txt", "r")
+        valores = readlines(arquivo)
+        close(arquivo)
+        grafico = vec([])
+        for i in valores
+            x = split(i,"\t")
+            push!(grafico,vec([x[1],parse(Float64, x[2])]))
+        end
+        coluna = [p[2] for p in grafico]
+        println(grafico[sortperm(coluna, rev=true)][1,:])
+    end
 end
