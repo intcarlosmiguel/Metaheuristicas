@@ -188,7 +188,7 @@ using Base.Threads
             push!(x,tempo)
             push!(y,Aptidão)
         end
-        return x,y,Aptidão
+        return x,y,Aptidão,tempo
     end
 
     function resfriamento(T,alpha)
@@ -412,11 +412,12 @@ using Base.Threads
         tam = 1000
         ag_results = Vector{Any}(undef, tam)
         #ls_results = Vector{Any}(undef, tam)
-        x = 1
+        x = 2
 
         Threads.@threads for seed in 1:tam
             rede = criar_rede_erdos_renyi(N, p, 42 * x + seed)
-            t = Threads.@spawn AG(rede, N, L, 42 * x + seed, 300, 6000,0.01)[2]
+            t = Threads.@spawn LocalSearch(rede, N, L, 42* x + seed, 1, 21)[4]
+            #t = Threads.@spawn AG(rede, N, L, 42 * x + seed, 300, 6000,0.01)[2]
             #t = Threads.@spawn SimulatedAnneling(rede, N, L, 42 * x + seed, 1, 21,5000,0.5)[4]
             ag_results[seed] = fetch(t)
         end
